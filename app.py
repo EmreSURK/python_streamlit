@@ -571,6 +571,7 @@ def main():
                 "Ürün adı ara",
                 value="",
                 placeholder="Ürün adında ara...",
+                key="tab1_product_query",
             ).strip().lower()
         with c2:
             # Bizim fiyatlarımız için min-max aralığı
@@ -582,6 +583,7 @@ def main():
                 max_value=max_price if max_price > min_price else min_price + 1,
                 value=(min_price, max_price if max_price > min_price else min_price + 1),
                 step=1,
+                key="tab1_price_range",
             )
         with c3:
             # En yakın rakibe göre fark (%) için aralık
@@ -592,11 +594,13 @@ def main():
                 min_value=min_closest,
                 max_value=max_closest if max_closest > min_closest else min_closest + 1,
                 value=(min_closest, max_closest if max_closest > min_closest else min_closest + 1),
+                key="tab1_closest_range",
             )
         # İsteğe bağlı: doğrudan ürün seçimi
         selected_names = st.multiselect(
             "Ürün seç (opsiyonel, çoklu)",
             options=chart_data['product_names'],
+            key="tab1_selected_names",
         )
 
         # Filtreleri uygula (index bazlı)
@@ -663,6 +667,7 @@ def main():
             value=(min_comp, max_comp),
             step=1,
             help="Grafikler ve metrikler seçili aralığa göre filtrelenir."
+        , key="tab2_comp_range"
         )
         
         # — Ürün arama ve sıralama —
@@ -672,6 +677,7 @@ def main():
                 "Ürün adı ara",
                 value="",
                 placeholder="Ürün adında ara...",
+                key="tab2_search_query",
             ).strip().lower()
         with col_sort:
             sort_label = st.selectbox(
@@ -683,9 +689,10 @@ def main():
                     "Ürün Adı",
                 ],
                 index=0,
+                key="tab2_sort_label",
             )
         with col_order:
-            sort_order = st.selectbox("Sıra", options=["Artan", "Azalan"], index=1)
+            sort_order = st.selectbox("Sıra", options=["Artan", "Azalan"], index=1, key="tab2_sort_order")
         reverse_sort = (sort_order == "Azalan")
         
         # Filtreyi uygula (index bazlı senkron alt listeler)
@@ -777,6 +784,7 @@ def main():
         selected_products = st.multiselect(
             "Ürün seçin (çoklu seçim)",
             options=chart_data['product_names'],
+            key="tab3_selected_products",
         )
 
         if selected_products:
