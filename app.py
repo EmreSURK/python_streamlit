@@ -564,49 +564,190 @@ def main():
     with tab1:
         st.header("Fiyat Karşılaştırması")
         
-        # İlk satır: Fiyat karşılaştırması
-        fig_price = create_price_comparison_chart(chart_data)
+        # — Filtreler: Ürün ve Fiyat —
+        c1, c2, c3 = st.columns([2, 2, 2])
+        with c1:
+            product_query = st.text_input(
+                "Ürün adı ara",
+                value="",
+                placeholder="Ürün adında ara...",
+            ).strip().lower()
+        with c2:
+            # Bizim fiyatlarımız için min-max aralığı
+            min_price = int(np.floor(min(chart_data['our_prices']))) if chart_data['our_prices'] else 0
+            max_price = int(np.ceil(max(chart_data['our_prices']))) if chart_data['our_prices'] else 0
+            selected_price_range = st.slider(
+                "Bizim fiyat aralığı (TL)",
+                min_value=min_price,
+                max_value=max_price if max_price > min_price else min_price + 1,
+                value=(min_price, max_price if max_price > min_price else min_price + 1),
+                step=1,
+            )
+        with c3:
+            # En yakın rakibe göre fark (%) için aralık
+            min_closest = float(np.floor(min(chart_data['closest_comp_diff_pct'])) if chart_data['closest_comp_diff_pct'] else -100)
+            max_closest = float(np.ceil(max(chart_data['closest_comp_diff_pct'])) if chart_data['closest_comp_diff_pct'] else 100)
+            selected_closest_range = st.slider(
+                "En yakın rakip farkı (%)",
+                min_value=min_closest,
+                max_value=max_closest if max_closest > min_closest else min_closest + 1,
+                value=(min_closest, max_closest if max_closest > min_closest else min_closest + 1),
+            )
+        # İsteğe bağlı: doğrudan ürün seçimi
+        selected_names = st.multiselect(
+            "Ürün seç (opsiyonel, çoklu)",
+            options=chart_data['product_names'],
+        )
+
+        # Filtreleri uygula (index bazlı)
+        idx_all = list(range(len(chart_data['product_names'])))
+        filtered_idx = []
+        for i in idx_all:
+            name = chart_data['product_names'][i] or ""
+            our_p = chart_data['our_prices'][i]
+            closest_pct = chart_data['closest_comp_diff_pct'][i] if i < len(chart_data['closest_comp_diff_pct']) else 0.0
+
+            if not (selected_price_range[0] <= our_p <= selected_price_range[1]):
+                continue
+            if not (selected_closest_range[0] <= float(closest_pct) <= selected_closest_range[1]):
+                continue
+            if product_query and product_query not in name.lower():
+                continue
+            if selected_names and name not in set(selected_names):
+                continue
+            filtered_idx.append(i)
+
+        def subset_price_tab(data_dict, idxs):
+            return {
+                'product_names': [data_dict['product_names'][i] for i in idxs],
+                'our_prices': [data_dict['our_prices'][i] for i in idxs],
+                'avg_comp_prices': [data_dict['avg_comp_prices'][i] for i in idxs],
+                'min_comp_prices': [data_dict['min_comp_prices'][i] for i in idxs],
+                'price_differences': [data_dict['price_differences'][i] for i in idxs],
+                'competitor_counts': [data_dict['competitor_counts'][i] for i in idxs],
+                'our_scores': chart_data['our_scores'],
+                'comp_scores': chart_data['comp_scores'],
+                'closest_comp_prices': [data_dict['closest_comp_prices'][i] for i in idxs],
+                'closest_comp_diff_pct': [data_dict['closest_comp_diff_pct'][i] for i in idxs],
+                'closest_comp_diff_tl': [data_dict['closest_comp_diff_tl'][i] for i in idxs],
+                'our_price_ranks': [data_dict['our_price_ranks'][i] for i in idxs],
+                'cheaper_than_us_counts': [data_dict['cheaper_than_us_counts'][i] for i in idxs],
+            }
+
+        chart_data_tab1 = subset_price_tab(chart_data, filtered_idx) if filtered_idx else subset_price_tab(chart_data, [])
+
+        # İlk satır: Fiyat karşılaştırması (filtreli)
+        fig_price = create_price_comparison_chart(chart_data_tab1)
         st.plotly_chart(fig_price, use_container_width=True)
         
-        
-        # İstatistikler
+        # İstatistikler (filtreli)
         col1, col2, col3 = st.columns(3)
-        
         with col1:
-            st.info(f"**En Pahalı:** {max(chart_data['our_prices']):.0f} TL")
-        
+            st.info(f"**En Pahalı:** {max(chart_data_tab1['our_prices']) if chart_data_tab1['our_prices'] else 0:.0f} TL")
         with col2:
-            st.info(f"**En Ucuz:** {min(chart_data['our_prices']):.0f} TL")
-        
+            st.info(f"**En Ucuz:** {min(chart_data_tab1['our_prices']) if chart_data_tab1['our_prices'] else 0:.0f} TL")
         with col3:
-            st.info(f"**Ortalama:** {np.mean(chart_data['our_prices']):.0f} TL")
+            mean_val = np.mean(chart_data_tab1['our_prices']) if chart_data_tab1['our_prices'] else 0
+            st.info(f"**Ortalama:** {mean_val:.0f} TL")
     
     # Sekme 2: Rekabet Analizi
     with tab2:
         st.header("Rekabet Yoğunluğu")
         
+        # — Filtreler: Rakip sayısı aralığı —
+        min_comp, max_comp = int(np.min(chart_data['competitor_counts'])), int(np.max(chart_data['competitor_counts']))
+        selected_min, selected_max = st.slider(
+            "Rakip sayısı aralığı",
+            min_value=min_comp,
+            max_value=max_comp,
+            value=(min_comp, max_comp),
+            step=1,
+            help="Grafikler ve metrikler seçili aralığa göre filtrelenir."
+        )
+        
+        # — Ürün arama ve sıralama —
+        col_search, col_sort, col_order = st.columns([2, 2, 1])
+        with col_search:
+            search_query = st.text_input(
+                "Ürün adı ara",
+                value="",
+                placeholder="Ürün adında ara...",
+            ).strip().lower()
+        with col_sort:
+            sort_label = st.selectbox(
+                "Sırala",
+                options=[
+                    "Rakip Sayısı",
+                    "Ort. Rakip Fiyatı",
+                    "Fiyat Farkı (%)",
+                    "Ürün Adı",
+                ],
+                index=0,
+            )
+        with col_order:
+            sort_order = st.selectbox("Sıra", options=["Artan", "Azalan"], index=1)
+        reverse_sort = (sort_order == "Azalan")
+        
+        # Filtreyi uygula (index bazlı senkron alt listeler)
+        filtered_indices = [i for i, c in enumerate(chart_data['competitor_counts']) if selected_min <= c <= selected_max]
+        if search_query:
+            filtered_indices = [
+                i for i in filtered_indices
+                if search_query in (chart_data['product_names'][i] or "").lower()
+            ]
+
+        # Sıralama anahtarı
+        def sort_key(i):
+            if sort_label == "Rakip Sayısı":
+                return chart_data['competitor_counts'][i]
+            if sort_label == "Ort. Rakip Fiyatı":
+                return chart_data['avg_comp_prices'][i]
+            if sort_label == "Fiyat Farkı (%)":
+                return chart_data['price_differences'][i]
+            if sort_label == "Ürün Adı":
+                return chart_data['product_names'][i]
+            return chart_data['competitor_counts'][i]
+        filtered_indices = sorted(filtered_indices, key=sort_key, reverse=reverse_sort)
+        def subset(data_dict, idxs):
+            return {
+                'product_names': [data_dict['product_names'][i] for i in idxs],
+                'our_prices': [data_dict['our_prices'][i] for i in idxs],
+                'avg_comp_prices': [data_dict['avg_comp_prices'][i] for i in idxs],
+                'min_comp_prices': [data_dict['min_comp_prices'][i] for i in idxs],
+                'price_differences': [data_dict['price_differences'][i] for i in idxs],
+                'competitor_counts': [data_dict['competitor_counts'][i] for i in idxs],
+                'our_scores': chart_data['our_scores'],  # global list (grafikte doğrudan kullanılmıyor)
+                'comp_scores': chart_data['comp_scores'], # global list (grafikte doğrudan kullanılmıyor)
+                'closest_comp_prices': [data_dict['closest_comp_prices'][i] for i in idxs],
+                'closest_comp_diff_pct': [data_dict['closest_comp_diff_pct'][i] for i in idxs],
+                'closest_comp_diff_tl': [data_dict['closest_comp_diff_tl'][i] for i in idxs],
+                'our_price_ranks': [data_dict['our_price_ranks'][i] for i in idxs],
+                'cheaper_than_us_counts': [data_dict['cheaper_than_us_counts'][i] for i in idxs],
+            }
+        filtered_data = subset(chart_data, filtered_indices) if filtered_indices else subset(chart_data, [])
+        
         # Rakip sayısı
-        fig_comp = create_competitor_count_chart(chart_data)
+        fig_comp = create_competitor_count_chart(filtered_data)
         st.plotly_chart(fig_comp, use_container_width=True)
         
         # Rakip sayısı istatistikleri
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.metric("Ortalama Rakip", f"{np.mean(chart_data['competitor_counts']):.1f}")
+            st.metric("Ortalama Rakip", f"{np.mean(filtered_data['competitor_counts']) if filtered_data['competitor_counts'] else 0:.1f}")
         
         with col2:
-            st.metric("Maksimum Rakip", f"{max(chart_data['competitor_counts'])}")
+            st.metric("Maksimum Rakip", f"{max(filtered_data['competitor_counts']) if filtered_data['competitor_counts'] else 0}")
         
         with col3:
-            st.metric("Minimum Rakip", f"{min(chart_data['competitor_counts'])}")
+            st.metric("Minimum Rakip", f"{min(filtered_data['competitor_counts']) if filtered_data['competitor_counts'] else 0}")
         
         # Rekabet seviyesi kategorileri
         st.subheader("Rekabet Seviyesi")
         
-        low_comp = sum(1 for c in chart_data['competitor_counts'] if c <= 5)
-        med_comp = sum(1 for c in chart_data['competitor_counts'] if 5 < c <= 10)
-        high_comp = sum(1 for c in chart_data['competitor_counts'] if c > 10)
+        low_comp = sum(1 for c in filtered_data['competitor_counts'] if c <= 5)
+        med_comp = sum(1 for c in filtered_data['competitor_counts'] if 5 < c <= 10)
+        high_comp = sum(1 for c in filtered_data['competitor_counts'] if c > 10)
         
         col1, col2, col3 = st.columns(3)
         
@@ -631,6 +772,39 @@ def main():
         fig_box = create_box_plot_comparison(chart_data)
         st.plotly_chart(fig_box, use_container_width=True)
         
+        # Seçili ürünler için Box plot
+        st.subheader("Seçili Ürünler - Fiyat Dağılımı Box Plot")
+        selected_products = st.multiselect(
+            "Ürün seçin (çoklu seçim)",
+            options=chart_data['product_names'],
+        )
+
+        if selected_products:
+            selected_indices = [
+                i for i, name in enumerate(chart_data['product_names'])
+                if name in set(selected_products)
+            ]
+            selected_our_prices = [chart_data['our_prices'][i] for i in selected_indices]
+            selected_avg_comp_prices = [chart_data['avg_comp_prices'][i] for i in selected_indices]
+
+            fig_box_selected = go.Figure()
+            fig_box_selected.add_trace(go.Box(
+                y=selected_our_prices,
+                name='Bizim Fiyatlar (Seçili)',
+                marker_color='#FF6B6B'
+            ))
+            if selected_avg_comp_prices:
+                fig_box_selected.add_trace(go.Box(
+                    y=selected_avg_comp_prices,
+                    name='Rakip Ortalama (Seçili)',
+                    marker_color='#4ECDC4'
+                ))
+            fig_box_selected.update_layout(
+                yaxis_title='Fiyat (TL)',
+                height=400
+            )
+            st.plotly_chart(fig_box_selected, use_container_width=True)
+
         # İstatistiksel özet
         st.subheader("İstatistiksel Özet")
         
